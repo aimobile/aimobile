@@ -1,4 +1,4 @@
-name: "zwp_tiny_SSD_300x300_deploy"
+name: "aimobile_SSD_300x300_deploy"
 input: "data"
 input_shape {
   dim: 1

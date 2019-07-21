@@ -23,10 +23,10 @@
    4.2 install the apk
    4.3 allow the camera permission
    
-   4.4 ![aimobile ssd result picture]
-   (https://github.com/aimobile/aimobile/blob/master/demo/aimobile_ssd_result.jpg)
+   4.4 ![aimobile ssd result picture](https://github.com/aimobile/aimobile/blob/master/demo/aimobile_ssd_result.jpg)
    
    
+
 
 Can not be used for commercial purposes without permission
 

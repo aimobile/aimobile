@@ -30,7 +30,7 @@
 
    now is 11fps in mobile phone with A73 arm cpu　　
    
-   our target is 30fps in mobile phone with arm cpu   　
+   our target is 30fps in mobile phone with arm cpu，camera/ＮＮ inference/ＮＮ　Pre-Post　pipeline ｎｅｅｄ to do!
    
 
 4. apk demo setup 　

@@ -45,7 +45,11 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.IntBuffer;
 import java.util.Arrays;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Vector;
 
 import static java.lang.Math.round;
 
@@ -57,7 +61,8 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
             Manifest.permission.WAKE_LOCK,
             Manifest.permission.DISABLE_KEYGUARD};
 
-    private static final String TAG = "aimobile";
+    private static final String TAG = "aimobile_app";
+    private static final String TAGMAIN = "aimobile_app_main";
     private static final String MYCAMERA2 = "MYCAMERA2";
     private static final String CAMERAID = "1";
     File sdcard = Environment.getExternalStorageDirectory();
@@ -66,6 +71,7 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
     String modelBinary = modelDir + "/aimobile_ssd.caffemodel";
     private TextureView mTextureView;
     private TextView tv;
+    private TextView tv_debug;
     private Handler mHandler;
     private HandlerThread mHandlerThread;
     private CameraDevice mCameraDevice;
@@ -81,40 +87,15 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
     int channel = 3;
     int height = 300;
     int width = 300;
+    int preview_height = 720;
+    int preview_width  = 960;
     float[] meanValues = {104f, 117f, 123f};
     int[] pixels = new int[width*height];
     float[] bgr = new float[channel*width*height];
+    List<ROIData> imgqueue = new Vector<ROIData>();
     Bitmap preview_bm;
     boolean nnrun_flag=false;
-    private Thread nnthread = new Thread(new Runnable() {
-        @Override
-        public void run() {
-            while (true){
-               if(nnrun_flag) {
-                   float[] result = aiMobile.predictImage(bgr, 5);
-                   if (result[2] != -1) {
-                       System.out.println("result_ori:" + result[3] + "," + result[4] + "," + result[5] + "," + result[6]);
-                       float xmin = round(result[3] * preview_bm.getWidth());
-                       float ymin = round(result[4] * preview_bm.getHeight());
-                       float xmax = round(result[5] * preview_bm.getWidth());
-                       float ymax = round(result[6] * preview_bm.getHeight());
-//                System.out.println("result:" + xmin + "," + ymin + "," + xmax + "," + ymax);
-                       Canvas canvas = new Canvas(preview_bm);
-                       //图像上画矩形
-                       Paint paint = new Paint();
-                       paint.setColor(Color.RED);
-                       paint.setStyle(Paint.Style.STROKE);//不填充
-                       paint.setStrokeWidth(10);  //线的宽度
-                       canvas.drawRect(xmin, ymin, xmax, ymax, paint);
-                   }
-                   Message msg = new Message();
-                   msg.what = 1;
-                   msg.obj = preview_bm;
-                   ivhandler.sendMessage(msg);
-               }
-            }
-        }
-    });
+
     private Handler ivhandler = new Handler(){
 
         @Override
@@ -124,18 +105,65 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
             System.out.println("time_handler1： "+(start_handler-end_handler)+"ms");
             float fps = (1000.0f/(start_handler-end_handler));
             fps = (float) ((int)(fps*100)/100f);
+            end_handler=System.currentTimeMillis(); //获取结束时间
             switch (msg.what){
                 case 1:
-                    Bitmap bm = (Bitmap)msg.obj;
-                    iv_preview.setImageBitmap(bm);
+                    ROIData roidata = (ROIData)msg.obj;
+                    float[]  result = roidata.getRoidata();
+                    float xmin=0;
+                    float ymin=0;
+                    float xmax=0;
+                    float ymax=0;
+                    int[] rgb_buffer = roidata.getrgb();
+
+                    Bitmap ori_bm = Bitmap.createBitmap(640, 480, Bitmap.Config.ARGB_8888);
+                    ori_bm.setPixels(rgb_buffer, 0,640, 0, 0, 640,480);
+                    roidata = null;
+                    if (result[2] != -1) {
+                        Log.i(TAGMAIN,"get ROI image start");
+                        Log.i(TAGMAIN,"result_ori:" + result[2] + ","+ result[3] + "," + result[4] + "," + result[5] + "," + result[6]);
+                        xmin = round(result[3] * ori_bm.getWidth());
+                        ymin = round(result[4] * ori_bm.getHeight());
+                        xmax = round(result[5] * ori_bm.getWidth());
+                        ymax = round(result[6] * ori_bm.getHeight());
+                        Canvas canvas = new Canvas(ori_bm);
+                        //图像上画矩形
+                        Paint paint = new Paint();
+                        paint.setColor(Color.RED);
+                        paint.setStyle(Paint.Style.STROKE);//不填充
+                        paint.setStrokeWidth(8);  //线的宽度
+                        canvas.drawRect(xmin, ymin, xmax, ymax, paint);
+                        Log.i(TAGMAIN,"get ROI image end");
+                    }
+                    Log.i(TAGMAIN,"rotaingImageView start1");
+                    Bitmap mybitmap = rotaingImageView(270,ori_bm);
+                    ori_bm = null;
+                    Log.i(TAGMAIN,"rotaingImageView end1");
+                    Log.i(TAGMAIN,"rotaingImageView start2");
+                    Matrix m = new Matrix();
+                    m.setScale(-1, 1);//水平翻转
+////            m.setScale(1, -1);//垂直翻转
+//            //生成的翻转后的bitmap
+                    Bitmap bm1 = Bitmap.createBitmap(mybitmap, 0, 0,mybitmap.getWidth(),mybitmap.getHeight(), m, true);
+
+                    Bitmap preview_bm_after = bm1.createScaledBitmap(bm1,preview_height,preview_width,false);
+                    mybitmap = null;
+                    bm1 = null;
+                    iv_preview.setImageBitmap(preview_bm_after);
+                    String debug_info = "prob="+result[2]+
+                                        "\n"+"xmin="+xmin+ " ymin="+ ymin+
+                                        "\n"+"xmax="+xmax+" ymax="+ymax+
+                                        "\n"+"人脸宽高比="+(xmax-xmin)/(ymax-ymin);
+                    tv_debug.setText(debug_info);
                     tv.setText("FPS:"+fps);
+
+                    Log.i(TAGMAIN,"rotaingImageView end2");
                     break;
                 default:
                     break;
             }
-            end_handler=System.currentTimeMillis(); //获取结束时间
 
-            System.out.println("time_handler： "+(end_handler-start_handler)+"ms");
+
 
 
         }
@@ -168,6 +196,7 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
         initLooper();
         mTextureView = (TextureView) findViewById(R.id.tv_previewView);
         tv = (TextView) findViewById(R.id.tv_fps);
+        tv_debug = (TextView) findViewById(R.id.tv_debug);
         iv_preview = (ImageView)findViewById(R.id.iv_preview);
         mTextureView.setSurfaceTextureListener(this);
     }
@@ -211,14 +240,14 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
         if (outputSizes != null) {
             sizeMax = outputSizes[0];
             for (Size size : outputSizes) {
-                Log.e("TAG",
+                Log.i(TAG,
                         "------- size.getWidth()===" + size.getWidth() + ",size.getHeight()===" + size.getHeight());
                 if (size.getWidth() * size.getHeight() > sizeMax.getWidth() * sizeMax.getHeight()) {
                     sizeMax = size;
                 }
             }
         }
-        Log.e("TAG",
+        Log.i(TAG,
                 "------- sizeMax.getWidth()===" + sizeMax.getWidth() + ",sizeMax.getHeight()===" + sizeMax.getHeight());
 //        return sizeMax;
         return  new Size(640,480);
@@ -275,35 +304,35 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
     };
 
     private void startPreview(CameraDevice camera) throws CameraAccessException {
-        SurfaceTexture texture = mTextureView.getSurfaceTexture();
+            SurfaceTexture texture = mTextureView.getSurfaceTexture();
+            Log.i(TAG,"startPreview start");
+            // 设置适当的大小和格式去匹配相机设备的可支持的大小和格式
+            texture.setDefaultBufferSize(mPreviewSize.getWidth(), mPreviewSize.getHeight());
+            Log.i(TAG, "mPreviewSize:" + mPreviewSize.getWidth() + "*" + mPreviewSize.getHeight());
+            Surface surface = new Surface(texture);
+            try {
+                mPreviewBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+            } catch (CameraAccessException e) {
+                e.printStackTrace();
+            }
+            // 设置预览数据传输到TextureView或SurfaceView
+    //        mPreviewBuilder.addTarget(surface);
 
-        // 设置适当的大小和格式去匹配相机设备的可支持的大小和格式
-        texture.setDefaultBufferSize(mPreviewSize.getWidth(), mPreviewSize.getHeight());
-        Log.e("TAG", "mPreviewSize:" + mPreviewSize.getWidth() + "*" + mPreviewSize.getHeight());
-        Surface surface = new Surface(texture);
-        try {
-            mPreviewBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-        } catch (CameraAccessException e) {
-            e.printStackTrace();
-        }
-        // 设置预览数据传输到TextureView或SurfaceView
-//        mPreviewBuilder.addTarget(surface);
-        Log.i("time","start");
-        long startTime=System.currentTimeMillis();
-        //设置预览数据输出到ImageReader
-        mPreviewBuilder.addTarget(mImageReader.getSurface());
-//        long endTime=System.currentTimeMillis(); //获取结束时间
-//
-//        System.out.println("time： "+(endTime-startTime)+"ms");
-        Log.i("time","end");
+            long startTime=System.currentTimeMillis();
+            //设置预览数据输出到ImageReader
+            mPreviewBuilder.addTarget(mImageReader.getSurface());
+    //        long endTime=System.currentTimeMillis(); //获取结束时间
+    //
+    //        System.out.println("time： "+(endTime-startTime)+"ms");
 
-        // 预览输出JPEG方向设置
-//        mPreviewBuilder.set(CaptureRequest.JPEG_ORIENTATION, 270);
-        // 创建由相机设备的输出surface组成的拍照会话
-        camera.createCaptureSession(Arrays.asList(mImageReader.getSurface()), mSessionStateCallback, mHandler);
-        long endTime=System.currentTimeMillis(); //获取结束时间
 
-        System.out.println("time_setting： "+(endTime-startTime)+"ms");
+            // 预览输出JPEG方向设置
+    //        mPreviewBuilder.set(CaptureRequest.JPEG_ORIENTATION, 270);
+            // 创建由相机设备的输出surface组成的拍照会话
+            camera.createCaptureSession(Arrays.asList(mImageReader.getSurface()), mSessionStateCallback, mHandler);
+            long endTime=System.currentTimeMillis(); //获取结束时间
+            Log.i(TAG,"startPreview end");
+            System.out.println("time_setting： "+(endTime-startTime)+"ms");
     }
 
     // --------------第二次回调，创建Session后回调，可执行CameraCaptureSession.setRepeatingRequest()------------------------
@@ -317,6 +346,7 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
                 isLedOn = !isLedOn;
             }
 */
+            Log.i(TAG,"get img start");
             long start=System.currentTimeMillis(); //获取结束时间
 
             try {
@@ -333,7 +363,8 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
                 e.printStackTrace();
             }
             long end=System.currentTimeMillis(); //获取结束时间
-
+            Log.i(TAG,"get img end");
+            Log.i(TAG,"time_camera： "+(end-start)+"ms");
             System.out.println("time_camera： "+(end-start)+"ms");
         }
 
@@ -428,200 +459,77 @@ public class MainActivity extends Activity implements TextureView.SurfaceTexture
                 bitmap.getWidth(), bitmap.getHeight(), matrix, true);
         return resizedBitmap;
     }
-    public static Bitmap getPicFromBytes(byte[] bytes,
-                                         BitmapFactory.Options opts) {
-        if (bytes != null)
-            if (opts != null)
-                return BitmapFactory.decodeByteArray(bytes, 0, bytes.length,
-                        opts);
-            else
-                return BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-        return null;
+
+    public class ROIData{
+        float[] roiData;
+        int[] rgbBuffer;
+        public ROIData(){
+
+        }
+        public void setROIData(float[] roi_data,int[] rgb){
+            roiData = roi_data;
+            rgbBuffer = rgb;
+        }
+        public float[] getRoidata(){
+            return roiData;
+        }
+        public int[] getrgb(){
+            return rgbBuffer;
+        }
+
     }
 
-    public static Bitmap yuv420spToBitmap(byte[] data, int width, int height) {
-        Bitmap bitmap = null;
-        YuvImage image = new YuvImage(data, ImageFormat.NV21, width, height, null);
-        if (image != null) {
-            ByteArrayOutputStream stream = new ByteArrayOutputStream();
-            image.compressToJpeg(new Rect(0, 0, width, height), 100, stream);
-            bitmap = BitmapFactory.decodeByteArray(stream.toByteArray(), 0, stream.size());
-            try {
-                stream.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-
-        return bitmap;
-    }
-    private static final int COLOR_FormatI420 = 1;
-    private static final int COLOR_FormatNV21 = 2;
-
-    private static boolean isImageFormatSupported(Image image) {
-        int format = image.getFormat();
-        switch (format) {
-            case ImageFormat.YUV_420_888:
-            case ImageFormat.NV21:
-            case ImageFormat.YV12:
-                return true;
-        }
-        return false;
-    }
-
-    private static byte[] getDataFromImage(Image image, int colorFormat) {
-        if (colorFormat != COLOR_FormatI420 && colorFormat != COLOR_FormatNV21) {
-            throw new IllegalArgumentException("only support COLOR_FormatI420 " + "and COLOR_FormatNV21");
-        }
-        if (!isImageFormatSupported(image)) {
-            throw new RuntimeException("can't convert Image to byte array, format " + image.getFormat());
-        }
-        Rect crop = image.getCropRect();
-        int format = image.getFormat();
-        int width = crop.width();
-        int height = crop.height();
-        Image.Plane[] planes = image.getPlanes();
-        byte[] data = new byte[width * height * ImageFormat.getBitsPerPixel(format) / 8];
-        byte[] rowData = new byte[planes[0].getRowStride()];
-        Log.v(TAG, "get data from " + planes.length + " planes");
-        int channelOffset = 0;
-        int outputStride = 1;
-        for (int i = 0; i < planes.length; i++) {
-            switch (i) {
-                case 0:
-                    channelOffset = 0;
-                    outputStride = 1;
-                    break;
-                case 1:
-                    if (colorFormat == COLOR_FormatI420) {
-                        channelOffset = width * height;
-                        outputStride = 1;
-                    } else if (colorFormat == COLOR_FormatNV21) {
-                        channelOffset = width * height + 1;
-                        outputStride = 2;
-                    }
-                    break;
-                case 2:
-                    if (colorFormat == COLOR_FormatI420) {
-                        channelOffset = (int) (width * height * 1.25);
-                        outputStride = 1;
-                    } else if (colorFormat == COLOR_FormatNV21) {
-                        channelOffset = width * height;
-                        outputStride = 2;
-                    }
-                    break;
-            }
-            ByteBuffer buffer = planes[i].getBuffer();
-            int rowStride = planes[i].getRowStride();
-            int pixelStride = planes[i].getPixelStride();
-//            Log.v(TAG, "pixelStride " + pixelStride);
-//            Log.v(TAG, "rowStride " + rowStride);
-//            Log.v(TAG, "width " + width);
-//            Log.v(TAG, "height " + height);
-//            Log.v(TAG, "buffer size " + buffer.remaining());
-            int shift = (i == 0) ? 0 : 1;
-            int w = width >> shift;
-            int h = height >> shift;
-            buffer.position(rowStride * (crop.top >> shift) + pixelStride * (crop.left >> shift));
-            for (int row = 0; row < h; row++) {
-                int length;
-                if (pixelStride == 1 && outputStride == 1) {
-                    length = w;
-                    buffer.get(data, channelOffset, length);
-                    channelOffset += length;
-                } else {
-                    length = (w - 1) * pixelStride + 1;
-                    buffer.get(rowData, 0, length);
-                    for (int col = 0; col < w; col++) {
-                        data[channelOffset] = rowData[col * pixelStride];
-                        channelOffset += outputStride;
-                    }
-                }
-                if (row < h - 1) {
-                    buffer.position(buffer.position() + rowStride - length);
-                }
-            }
-
-        }
-        return data;
-    }
-
-    long endTime = 0;
-    long startTime = 0;
     // -----------------------获得数据监听，用于保存拍照数据-------------------------
     private ImageReader.OnImageAvailableListener mOnImageAvailableListener = new ImageReader.OnImageAvailableListener() {
         // 获得数据时回调
         @Override
         public void onImageAvailable(ImageReader reader) {
-
-
-
-            startTime =System.currentTimeMillis();
-
-//            System.out.println("time3： "+(startTime-endTime)+"ms");
-
-//            Log.e("imageData", "mImageReader-----onImageAvailable");
-//            Log.e("imageData", "reader:" + reader.getWidth() + "*" + reader.getHeight());
             //获取捕获的照片数据
+            Log.i(TAG,"acquireNextImage start");
             Image img = reader.acquireNextImage();
-//            Log.e("imageData", "reader.getMaxImages():" + reader.getMaxImages());
-//            Log.e("imageData", "image:" + img.getWidth() + "*" + img.getHeight());
-            long endTime1=System.currentTimeMillis(); //获取结束时间
-
-            System.out.println("time1： "+(endTime1-startTime)+"ms");
-
-
-            byte[] data=getDataFromImage(img,COLOR_FormatNV21);
-//            Log.e("imageData", "data.length:" +data[100]+":"+data.length);
-            Bitmap yuvbm =  yuv420spToBitmap(data,img.getWidth(),img.getHeight());
-            Bitmap mybitmap = rotaingImageView(270,yuvbm);
-            Matrix m = new Matrix();
-            m.setScale(-1, 1);//水平翻转
-//            m.setScale(1, -1);//垂直翻转
-            //生成的翻转后的bitmap
-//            Log.e("imageData", "bitmap length:"+mybitmap.getWidth()+","+mybitmap.getHeight());
-            preview_bm = Bitmap.createBitmap(mybitmap, 0, 0,mybitmap.getWidth(),mybitmap.getHeight(), m, true);
-
-            Bitmap resizebmp = Bitmap.createScaledBitmap(preview_bm,width,height,false);
-            resizebmp.getPixels(pixels,0,width,0,0,width,height);
-
-            for(int i = 0; i < pixels.length; i++){
-                int clr = pixels[i];
-                int  red   = (clr & 0x00ff0000) >> 16;  //取高两位
-                int  green = (clr & 0x0000ff00) >> 8; //取中两位
-                int  blue  =  clr & 0x000000ff; //取低两位
-                bgr[i] = blue - meanValues[0];
-                bgr[i+width*height] = green - meanValues[1];
-                bgr[i+2*width*height] = red - meanValues[2];
-//                System.out.println("r="+red+",g="+green+",b="+blue);
+            Log.i(TAG,"image width="+img.getWidth()+"image height="+img.getHeight());
+            Log.i(TAG,"acquireNextImage end");
+            Log.i(TAG,"convert start");
+            Image.Plane[] plane = img.getPlanes();
+            byte[][] mYUVBytes = new byte[plane.length][];
+            for (int i = 0; i < plane.length; ++i) {
+                mYUVBytes[i] = new byte[plane[i].getBuffer().capacity()];
             }
+            int[] mRGBBytes = new int[img.getWidth() * img.getHeight()];
 
-            float[] result = aiMobile.predictImage(bgr, 5);
+            for (int i = 0; i < plane.length; ++i) {
+                plane[i].getBuffer().get(mYUVBytes[i]);
+            }
+            final int yRowStride = plane[0].getRowStride();
+            final int uvRowStride = plane[1].getRowStride();
+            final int uvPixelStride = plane[1].getPixelStride();
+            Log.i(TAG,"convert start1");
+            aiMobile.convertYUV420ToARGB8888(
+                mYUVBytes[0],
+                mYUVBytes[1],
+                mYUVBytes[2],
+                mRGBBytes,
+                img.getWidth(),
+                img.getHeight(),
+                yRowStride,
+                uvRowStride,
+                uvPixelStride,
+                false);
+            Log.i(TAG,"convert end1");
+            float[] result;
+            ROIData roidata = new ROIData();
+            Log.i(TAG,"predictImage start");
+            result = aiMobile.predictImage(mRGBBytes, 5);
+            Log.i(TAG,"predictImage end");
 
-            if (result[2] != -1) {
-                System.out.println("result_ori:" + result[3] + "," + result[4] + "," + result[5] + "," + result[6]);
-                float xmin = round(result[3] * preview_bm.getWidth());
-                float ymin = round(result[4] * preview_bm.getHeight());
-                float xmax = round(result[5] * preview_bm.getWidth());
-                float ymax = round(result[6] * preview_bm.getHeight());
-//                System.out.println("result:" + xmin + "," + ymin + "," + xmax + "," + ymax);
-                Canvas canvas = new Canvas(preview_bm);
-                //图像上画矩形
-                Paint paint = new Paint();
-                paint.setColor(Color.RED);
-                paint.setStyle(Paint.Style.STROKE);//不填充
-                paint.setStrokeWidth(10);  //线的宽度
-                canvas.drawRect(xmin, ymin, xmax, ymax, paint);
-            }
-            else {
-            }
+            roidata.setROIData(result,mRGBBytes);
+
+            Log.i(TAG,"send msg start");
             Message msg = new Message();
             msg.what = 1;
-            msg.obj = preview_bm;
+            msg.obj = roidata;
             ivhandler.sendMessage(msg);
-            endTime=System.currentTimeMillis(); //获取结束时间
-
-            System.out.println("time2： "+(endTime-startTime)+"ms");
+            Log.i(TAG,"send msg end");
 
             img.close();
         }

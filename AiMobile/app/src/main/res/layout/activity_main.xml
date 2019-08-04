@@ -8,8 +8,10 @@
 <RelativeLayout
     android:layout_width="368dp"
     android:layout_height="495dp"
+    android:orientation="vertical"
     tools:layout_editor_absoluteY="8dp"
-    tools:layout_editor_absoluteX="8dp">
+    tools:layout_editor_absoluteX="8dp"
+    >
 
 
     <TextureView
@@ -21,15 +23,33 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:src="@drawable/liu"
+        android:paddingTop="100dp"
         android:layout_centerHorizontal="true"
+        android:layout_centerVertical="true"
    />
     <TextView
         android:id="@+id/tv_fps"
+        android:textSize="25dp"
+        android:textColor="#0000ff"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="fps:"
         android:layout_below="@id/iv_preview"
         android:layout_centerHorizontal="true"
+        android:singleLine="false"
+
         />
+        <TextView
+        android:id="@+id/tv_debug"
+        android:textSize="25dp"
+        android:textColor="#ff0000"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_centerHorizontal="true"
+        android:singleLine="false"
+        android:layout_marginTop="10dp"
+        />
+
 </RelativeLayout>
+
 </android.support.constraint.ConstraintLayout>
